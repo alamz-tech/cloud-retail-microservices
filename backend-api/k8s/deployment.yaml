@@ -60,11 +60,7 @@ spec:
                   name: rds-credentials
                   key: DB_NAME
             - name: DB_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: rds-credentials
-                  key: DB_PORT
-                  optional: true
+              value: "5432"
           resources:
             requests:
               cpu: 100m
