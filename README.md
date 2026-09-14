@@ -7,7 +7,7 @@
 [![NGINX](https://img.shields.io/badge/NGINX-Unprivileged-009639?logo=nginx&logoColor=white)](https://nginx.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-RDS%2016-336791?logo=postgresql&logoColor=white)](https://aws.amazon.com/rds/)
 
-A production-grade, 3-tier microservices workload engineered for the **Amazon EKS DevOps/Platform Engineering Capstone Project**. 
+A production-ready 3-tier microservices workload engineered for the **Amazon EKS DevOps/Platform Engineering Capstone Project**.
 
 Designed specifically for platform and DevOps engineers who want zero-friction container packaging: **Docker handles 100% of compilation and dependency management**, and the backend database **automatically creates its schema and seeds dummy retail items on startup**.
 
@@ -64,149 +64,119 @@ Designed specifically for platform and DevOps engineers who want zero-friction c
 ```text
 cloud-retail-microservices/
 ├── frontend-ui/
-│   ├── src/                     # React 18 single-page dashboard
+│   ├── src/                     # Simple, clean React single-page UI
 │   │   ├── App.jsx              # Dashboard UI, metrics, catalog table, & error state
 │   │   ├── main.jsx             # React DOM root mounting
-│   │   └── index.css            # Modern responsive stylesheet (no external CSS dependencies)
+│   │   └── index.css            # Clean responsive stylesheet (no external CSS dependencies)
 │   ├── index.html               # Web page entrypoint
 │   ├── package.json             # NPM project definitions
-│   ├── vite.config.js           # Vite configuration with /api proxy
-│   ├── nginx.conf               # Hardened unprivileged NGINX with internal reverse proxy
-│   ├── Dockerfile               # Multi-stage build (Node 20 Alpine -> NGINX Unprivileged)
-│   ├── .dockerignore
+│   ├── vite.config.js           # Vite configuration
+│   ├── nginx.conf               # Hardened unprivileged NGINX with reverse proxy to backend
+│   ├── Dockerfile               # Multi-stage build (Node 20 build -> NGINX Alpine)
 │   └── k8s/
-│       ├── namespace.yaml       # 'frontend' namespace
 │       ├── deployment.yaml      # Non-root deployment, dropped Linux capabilities
 │       ├── service.yaml         # ClusterIP service (port 80 -> 8080)
-│       └── ingress.yaml         # AWS Load Balancer Controller ALB Ingress
+│       └── ingress.yaml         # AWS ALB Ingress configuration
 ├── backend-api/
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI application with /api/health and /api/products
-│   │   ├── database.py          # SQLAlchemy engine, connection retry, & auto-seeding
-│   │   └── models.py            # SQLAlchemy Product model
+│   │   ├── main.py              # FastAPI service connecting to PostgreSQL
+│   │   ├── database.py          # SQLAlchemy setup and auto-seeding
+│   │   └── models.py            # SQLAlchemy models
 │   ├── requirements.txt         # Production Python dependencies
-│   ├── Dockerfile               # Multi-stage non-root build (UID 10001)
-│   ├── .dockerignore
+│   ├── Dockerfile               # Multi-stage non-root Python build (UID 10001)
 │   └── k8s/
-│       ├── namespace.yaml       # 'backend' namespace
 │       ├── deployment.yaml      # Hardened deployment with ESO secret injection
 │       ├── service.yaml         # ClusterIP service (port 8000)
-│       ├── external-secret.yaml # ExternalSecret resource syncing AWS Secrets Manager
-│       └── network-policy.yaml  # Network isolation: drops non-frontend traffic
-├── docker-compose.yml           # 1-command local sandbox with PostgreSQL 16
+│       └── external-secret.yaml # ESO Custom Resource to fetch RDS credentials
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
-## Microservices Breakdown
+## Component Specifications
 
-### 1. Frontend UI (`frontend-ui`)
-* **Framework:** React 18 bundled with Vite.
-* **Dashboard Features:**
-  * Displays header: `"Cloud Retail Internal Dashboard"`.
-  * Real-time metrics overview: Catalog Products, Units in Stock, Inventory Valuation, and Database Connection.
-  * Live catalog table querying `/api/products` with product status tags (`In Stock`, `Low Stock`, `Out of Stock`).
-  * Explicit, user-friendly error banners and diagnostics if the backend or database is unreachable.
-* **NGINX Reverse Proxy (`nginx.conf`):**
-  * Runs completely unprivileged on port `8080`.
-  * Reverse proxies `/api/` traffic directly to `http://backend-api.backend.svc.cluster.local:8000/api/`. This avoids browser CORS errors and prevents exposing the backend service to the internet.
-  * Provides `/healthz` for ALB target group health checks.
-* **Container Build:**
-  * Stage 1: `node:20-alpine` runs `npm install` and compiles the bundle.
-  * Stage 2: `nginxinc/nginx-unprivileged:alpine` serves static files and proxies API traffic.
+### 1. Frontend (`frontend-ui`)
+* **Framework:** Lightweight React using Vite.
+* **Functionality:**
+  * Header displaying `"Cloud Retail Internal Dashboard"`.
+  * Card showing live data fetched from `/api/products` (retrieved from the backend).
+  * Clear error states if the backend or database is unreachable.
+* **NGINX Configuration (`nginx.conf`):**
+  * Runs as an unprivileged user on port `8080`.
+  * Serves compiled static assets from `/usr/share/nginx/html`.
+  * Reverse proxy block forwarding `/api/` requests to the internal Kubernetes DNS name of the backend (`http://backend-api.backend.svc.cluster.local:8000/api/`). This avoids CORS issues and keeps the backend private.
+* **Dockerfile:**
+  * Stage 1: `node:20-alpine` runs `npm install` and `npm run build`.
+  * Stage 2: `nginxinc/nginx-unprivileged:alpine` copies `/dist` output and runs rootless.
 
-### 2. Backend API (`backend-api`)
-* **Framework:** FastAPI with SQLAlchemy and `psycopg2-binary`.
+### 2. Backend (`backend-api`)
+* **Framework:** Python FastAPI with `SQLAlchemy` and `psycopg2-binary`.
 * **Endpoints:**
-  * `GET /api/health`: Health probe endpoint validating PostgreSQL database connectivity.
-  * `GET /api/products`: Queries the `products` table and returns catalog items (`id`, `name`, `description`, `price`, `stock`).
-* **Automatic Database Initialization & Seeding:**
-  * Automatically executes `Base.metadata.create_all(bind=engine)` upon container startup.
-  * Automatically queries the `products` table. If 0 records exist, it inserts 3 dummy products:
+  * `GET /api/health`: Health probe endpoint.
+  * `GET /api/products`: Queries PostgreSQL database table named `products` and returns catalog items (`id`, `name`, `description`, `price`, `stock`).
+* **Database Auto-Seeding (CRITICAL):**
+  * Uses `Base.metadata.create_all(bind=engine)` on startup to automatically create the table without requiring manual SQL migrations.
+  * Immediately checks if the table is empty. If empty, automatically inserts 3 dummy retail products:
     1. **Mechanical Keyboard** ($129.99, Stock: 45)
     2. **Wireless Mouse** ($49.99, Stock: 120)
     3. **USB-C Hub** ($34.50, Stock: 80)
-* **Resilience:**
-  * Includes connection retries with exponential backoff on startup so backend pods gracefully wait if RDS is still initializing.
-* **Container Build:**
-  * Multi-stage build based on `python:3.11-slim`.
-  * Runs as dedicated unprivileged user `appuser` (`UID 10001`, `GID 10001`).
-  * Contains no compilers or build tools in the final image.
+* **Configuration:**
+  * Reads DB host, user, password, and name from environment variables (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`).
+* **Dockerfile:**
+  * Multi-stage build using `python:3.11-slim`.
+  * Runs as non-root user `appuser` (`UID 10001`).
+  * No development dependencies in final image.
 
 ---
 
-## Quickstart: Local Validation with Docker Compose
+## Student Step-by-Step Integration Guide
 
-You can validate the full 3-tier architecture locally before pushing to AWS:
+### Step 1: Zero-Code Container Packaging
 
-```bash
-# Clone the repository
-git clone https://github.com/alamz-tech/cloud-retail-microservices.git
-cd cloud-retail-microservices
+You do not need Node.js, npm, or Python installed on your local machine. Both applications use Docker multi-stage builds.
 
-# Start Postgres, Backend API, and Frontend UI
-docker compose up --build
-```
+1. **Clone the application repo:**
+   ```bash
+   git clone https://github.com/alamz-tech/cloud-retail-microservices.git
+   cd cloud-retail-microservices
+   ```
 
-* **Frontend Dashboard:** Open [http://localhost:8080](http://localhost:8080)
-* **Backend API Docs:** Open [http://localhost:8000/docs](http://localhost:8000/docs)
-* **Backend Health Probe:** Open [http://localhost:8000/api/health](http://localhost:8000/api/health)
+2. **Build and tag the containers locally:**
+   ```bash
+   # Set your AWS environment variables
+   export AWS_REGION="us-east-1"
+   export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
-Press `Ctrl+C` and run `docker compose down -v` when finished.
+   # Authenticate Docker to Amazon ECR
+   aws ecr get-login-password --region ${AWS_REGION} | \
+     docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
----
+   # Build the frontend (compiles React and packages into NGINX rootless)
+   docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1 ./frontend-ui
 
-## Step-by-Step EKS Capstone Deployment
+   # Build the backend (packages FastAPI in non-root Python runtime)
+   docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1 ./backend-api
+   ```
 
-### Step 1: Zero-Code Container Packaging (ECR)
-
-Build and tag both containers locally using Docker:
-
-```bash
-# Set your AWS variables
-export AWS_REGION="us-east-1"
-export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-
-# Authenticate Docker to Amazon ECR
-aws ecr get-login-password --region ${AWS_REGION} | \
-  docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-# Create ECR repositories (if not already created by Terraform)
-aws ecr create-repository --repository-name retail-frontend --region ${AWS_REGION} || true
-aws ecr create-repository --repository-name retail-backend --region ${AWS_REGION} || true
-
-# Build and push Frontend
-docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1 ./frontend-ui
-docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1
-
-# Build and push Backend
-docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1 ./backend-api
-docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1
-```
+3. **Push images to your private ECR repositories:**
+   ```bash
+   docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1
+   docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1
+   ```
 
 ### Step 2: Infrastructure Provisioning (Terraform)
 
-From your Terraform infrastructure repository, provision:
-1. VPC with public and private subnets.
-2. RDS PostgreSQL database (`db.t4g.micro`, 20 GB).
-3. AWS Secrets Manager secret: `retail-app/rds/credentials` with keys:
-   ```json
-   {
-     "host": "<rds-endpoint>",
-     "username": "postgres",
-     "password": "<secure-password>",
-     "dbname": "retail_db",
-     "port": "5432"
-   }
-   ```
-4. EKS cluster with Karpenter (configured for Spot instances) and OIDC IRSA enabled.
+Navigate to your personal infrastructure repository and execute your Terraform code to provision:
+* Custom VPC with dedicated public and private subnets.
+* Amazon RDS PostgreSQL instance (`db.t4g.micro`) placed in private database subnets.
+* AWS Secrets Manager secret (`retail-app/rds/credentials`) storing the database connection string and credentials.
+* Amazon EKS cluster with OIDC provider enabled for IAM Roles for Service Accounts (IRSA).
 
 ### Step 3: Secrets Integration with ESO
 
-1. Deploy External Secrets Operator via Helm:
+1. Deploy the External Secrets Operator:
    ```bash
    helm repo add external-secrets https://charts.external-secrets.io
    helm repo update
@@ -216,44 +186,34 @@ From your Terraform infrastructure repository, provision:
      --set installCRDs=true
    ```
 
-2. Create the backend namespace:
+2. Create the backend namespace and apply the `ExternalSecret`:
    ```bash
    kubectl apply -f backend-api/k8s/namespace.yaml
-   ```
-
-3. Ensure your `ClusterSecretStore` (referencing your IRSA role for Secrets Manager) is configured, then apply the `ExternalSecret`:
-   ```bash
    kubectl apply -f backend-api/k8s/external-secret.yaml
    ```
 
-4. Verify secret synchronization:
+3. Verify secret synchronization:
    ```bash
-   kubectl get externalsecret -n backend
-   # Output must show STATUS: SecretSynced
+   kubectl get externalsecrets -n backend
+   # Must show STATUS: SecretSynced
    kubectl get secret rds-credentials -n backend
    ```
 
-### Step 4: Deploying Backend & Network Isolation
+### Step 4: Deploy Backend Service & Ingress
 
-1. Update the image in `backend-api/k8s/deployment.yaml` with your ECR image URI.
-2. Apply the backend manifests:
+1. Update the image in `backend-api/k8s/deployment.yaml` with your ECR image URI and deploy:
    ```bash
    kubectl apply -f backend-api/k8s/deployment.yaml
    kubectl apply -f backend-api/k8s/service.yaml
-   kubectl apply -f backend-api/k8s/network-policy.yaml
    ```
 
-3. Verify the pods are running and auto-seeding completed:
+2. Verify auto-seeding in backend logs:
    ```bash
    kubectl get pods -n backend
-   kubectl logs -n backend -l app=backend-api --tail=50
-   # You should see: "Successfully auto-seeded 3 initial retail products into the database."
+   kubectl logs -n backend -l app=backend-api --tail=30
    ```
 
-### Step 5: Deploying Frontend & Ingress
-
-1. Update the image in `frontend-ui/k8s/deployment.yaml` with your ECR image URI.
-2. Apply the frontend manifests:
+3. Update the image in `frontend-ui/k8s/deployment.yaml` with your ECR image URI and deploy:
    ```bash
    kubectl apply -f frontend-ui/k8s/namespace.yaml
    kubectl apply -f frontend-ui/k8s/deployment.yaml
@@ -261,51 +221,37 @@ From your Terraform infrastructure repository, provision:
    kubectl apply -f frontend-ui/k8s/ingress.yaml
    ```
 
-3. Obtain the Application Load Balancer address:
+4. Retrieve the public Application Load Balancer address:
    ```bash
    kubectl get ingress -n frontend
    ```
-   Open the `ADDRESS` in your browser. You will see the **Cloud Retail Internal Dashboard** displaying live product catalog data retrieved from your Amazon RDS database!
 
----
+### Step 5: Network Isolation & Security Hardening
 
-## Network Isolation Verification (Step 5 of Capstone)
-
-Verify that the `allow-frontend-only` NetworkPolicy is enforcing strict isolation:
+Apply the network policy to ensure all incoming traffic to the backend is dropped except connections originating from pods in the `frontend` namespace:
 
 ```bash
-# 1. Spawn a test pod in the DEFAULT namespace (should be BLOCKED)
-kubectl run curl-test --image=curlimages/curl -i --tty --rm -- \
-  curl -m 3 http://backend-api.backend.svc.cluster.local:8000/api/health
-# Expected: Connection timed out (Blocked by NetworkPolicy)
+kubectl apply -f backend-api/k8s/network-policy.yaml
+```
 
-# 2. Test curl from a pod in the FRONTEND namespace (should SUCCEED)
+Verify isolation:
+```bash
+# Blocked from default namespace:
+kubectl run curl-test --image=curlimages/curl -n default -i --tty --rm -- \
+  curl -m 4 http://backend-api.backend.svc.cluster.local:8000/api/health
+
+# Allowed from frontend namespace:
 kubectl exec -n frontend -it $(kubectl get pods -n frontend -l app=frontend-ui -o jsonpath='{.items[0].metadata.name}') -- \
   wget -qO- http://backend-api.backend.svc.cluster.local:8000/api/health
-# Expected: {"status":"healthy","database":"connected",...}
 ```
 
 ---
 
 ## FinOps & Credit Protection Rules
 
-* **The Spin-and-Kill Routine:** Run `terraform apply` when you begin your session. When finished, immediately run `terraform destroy` to prevent overnight charges.
-* **Spot Instances with Karpenter:** Worker nodes must utilize Spot instances (`t3.small` / `t3.medium`). Verify with:
+* **The Spin-and-Kill Routine:** Run `terraform apply` when you begin working, test your configuration, and run `terraform destroy` when done for the day.
+* **Spot Instances via Karpenter:** Worker nodes must run on EC2 Spot instances (`t3.small` / `t3.medium`). Verify with:
   ```bash
   kubectl get nodes -L karpenter.sh/capacity-type
   ```
-* **Database Sizing:** Ensure RDS uses `db.t4g.micro` with 20GB storage.
-
----
-
-## Capstone Submission Deliverables
-
-1. **Deliverable 1: Source Code Repository (GitHub)**
-   * Link to your repository containing `frontend-ui/`, `backend-api/`, and `infrastructure/`.
-2. **Deliverable 2: Evidence Document (`EVIDENCE.md`)**
-   * Spot Capacity Verification (`kubectl get nodes -L karpenter.sh/capacity-type`).
-   * External Secrets Sync (`kubectl get externalsecrets -A`).
-   * Network Isolation Proof (`curl` output from unauthorized vs frontend namespaces).
-   * Clean Cloud Teardown output (`Destroy complete! Resources: X destroyed.`).
-3. **Deliverable 3: Video Walkthrough (3-5 Minutes)**
-   * Demonstrating healthy pods (`kubectl get pods -A`), opening the ALB URL in the browser, verifying network policy, and running `terraform destroy`.
+* **Database Sizing:** Provision RDS PostgreSQL as `db.t4g.micro` with 20GB storage.
