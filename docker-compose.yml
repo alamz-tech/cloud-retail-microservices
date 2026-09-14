@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database (Simulates Amazon RDS for local validation)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: retail-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: retail_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      retail-net:
+        aliases:
+          - postgres-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d retail_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # Backend API Microservice (FastAPI + SQLAlchemy Auto-Seeding)
+  # ----------------------------------------------------------------------------
+  backend-api:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: retail-backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: secretpassword
+      DB_NAME: retail_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      retail-net:
+        aliases:
+          # Match internal Kubernetes DNS so nginx.conf reverse proxy works out-of-the-box
+          - backend-api
+          - backend-api.backend.svc.cluster.local
+
+  # ----------------------------------------------------------------------------
+  # Frontend UI (React + NGINX Rootless Reverse Proxy)
+  # ----------------------------------------------------------------------------
+  frontend-ui:
+    build:
+      context: ./frontend-ui
+      dockerfile: Dockerfile
+    container_name: retail-frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend-api
+    networks:
+      - retail-net
+
+volumes:
+  pgdata:
+
+networks:
+  retail-net:
+    driver: bridge
