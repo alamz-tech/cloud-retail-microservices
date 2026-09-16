@@ -69,3 +69,9 @@ variable "db_username" {
   type        = string
   default     = "postgres"
 }
+
+variable "install_helm_controllers" {
+  description = "Set to true to have Terraform install Helm charts (Karpenter, ESO, ALB Controller); set to false to manage them manually via Helm CLI"
+  type        = bool
+  default     = false
+}

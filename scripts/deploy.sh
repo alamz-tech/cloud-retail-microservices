@@ -19,11 +19,62 @@ terraform apply -auto-approve
 echo "[+] Step 2: Updating kubeconfig for EKS cluster '${CLUSTER_NAME}'..."
 aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-# Step 3: Wait for Core Controllers
-echo "[+] Step 3: Waiting for controllers (Karpenter, ESO, ALB Controller) to become ready..."
-kubectl rollout status deployment/karpenter -n karpenter --timeout=180s || true
+# Step 3: Install Core Controllers via Helm CLI
+echo "[+] Step 3: Fetching IRSA roles and installing Controllers via Helm CLI..."
+cd "${ROOT_DIR}/infrastructure"
+ESO_ROLE_ARN=$(terraform output -raw eso_role_arn 2>/dev/null || echo "")
+ALB_ROLE_ARN=$(terraform output -raw alb_controller_role_arn 2>/dev/null || echo "")
+KARPENTER_NODE_ROLE=$(terraform output -raw karpenter_node_role_name 2>/dev/null || echo "")
+VPC_ID=$(terraform state show aws_vpc.main | grep -E '^\s*id\s*=' | awk '{print $3}' | tr -d '"' 2>/dev/null || echo "")
+
+# 3A. Install External Secrets Operator
+echo "[+] Step 3A: Installing External Secrets Operator via Helm..."
+helm repo add external-secrets https://charts.external-secrets.io || true
+helm repo update external-secrets
+helm upgrade --install external-secrets external-secrets/external-secrets \
+  -n external-secrets \
+  --create-namespace \
+  --set installCRDs=true \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${ESO_ROLE_ARN}"
+
+# 3B. Install AWS Load Balancer Controller
+echo "[+] Step 3B: Installing AWS Load Balancer Controller via Helm..."
+helm repo add eks https://aws.github.io/eks-charts || true
+helm repo update eks
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: ${ALB_ROLE_ARN}
+EOF
+helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName="${CLUSTER_NAME}" \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region="${AWS_REGION}" \
+  --set vpcId="${VPC_ID}"
+
+# 3C. Install Karpenter
+echo "[+] Step 3C: Installing Karpenter via Helm..."
+KARPENTER_ROLE_ARN=$(terraform state show aws_iam_role.karpenter_controller | grep -E '^\s*arn\s*=' | awk '{print $3}' | tr -d '"' 2>/dev/null || echo "")
+QUEUE_NAME=$(terraform state show aws_sqs_queue.karpenter_interruption | grep -E '^\s*name\s*=' | awk '{print $3}' | tr -d '"' 2>/dev/null || echo "")
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  --version "1.0.1" \
+  --namespace "karpenter" \
+  --create-namespace \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${KARPENTER_ROLE_ARN}" \
+  --set settings.clusterName="${CLUSTER_NAME}" \
+  --set settings.interruptionQueue="${QUEUE_NAME}"
+
+echo "[+] Waiting for controllers to be ready..."
 kubectl rollout status deployment/external-secrets -n external-secrets --timeout=180s || true
 kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=180s || true
+kubectl rollout status deployment/karpenter -n karpenter --timeout=180s || true
+cd "${ROOT_DIR}"
 
 # Step 4: Apply Karpenter CRDs (NodePool & EC2NodeClass)
 echo "[+] Step 4: Applying Karpenter Spot NodePool and EC2NodeClass..."

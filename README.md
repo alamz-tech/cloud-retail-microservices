@@ -150,54 +150,146 @@ To satisfy enterprise compliance and strict least-privilege access control, all 
 
 ---
 
-## 5. Step-by-Step Operator Runbook
+## 5. Hands-On Step-by-Step Operator Runbook
 
-### Step 1: Authentication & Docker Setup
-Ensure your AWS credentials and Docker daemon are active:
+> [!TIP]
+> For the complete, detailed command reference with expected outputs and architecture diagnostics for every individual stage, see [STEP_BY_STEP_RUNBOOK.md](STEP_BY_STEP_RUNBOOK.md).
+
+### Stage 1: Build & Push Containers to Amazon ECR
 ```bash
-# Verify AWS credentials
 export AWS_REGION="us-east-1"
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-echo "Deploying into AWS Account: ${AWS_ACCOUNT_ID} in ${AWS_REGION}"
 
-# Launch Docker Desktop if not running
-open -a Docker
+# Login to private ECR
+aws ecr get-login-password --region ${AWS_REGION} | \
+  docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+# Create repos (if needed)
+aws ecr create-repository --repository-name retail-frontend --region ${AWS_REGION} || true
+aws ecr create-repository --repository-name retail-backend --region ${AWS_REGION} || true
+
+# Build & Push Frontend (Vite React SPA -> Rootless NGINX)
+docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1 ./frontend-ui
+docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-frontend:v1
+
+# Build & Push Backend (Python FastAPI -> Non-root UID 10001)
+docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1 ./backend-api
+docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/retail-backend:v1
 ```
 
-### Step 2: Zero-Code Container Packaging
-Build and push both microservice containers to private Amazon ECR:
-```bash
-./scripts/build-and-push.sh
-```
-
-### Step 3: Infrastructure Provisioning (Terraform)
-Apply the infrastructure code to provision VPC, EKS, RDS, and Controllers:
+### Stage 2: Infrastructure Provisioning (Terraform Plan & Apply)
 ```bash
 cd infrastructure
 terraform init
+terraform plan       # Inspect VPC, EKS, RDS, Secrets Manager, and IRSA roles
 terraform apply -auto-approve
-```
-
-### Step 4: Workload Deployment
-Deploy Karpenter NodePools, ExternalSecrets, and microservices:
-```bash
+terraform output     # Inspect RDS host, cluster name, and role ARNs
 cd ..
-./scripts/deploy.sh
 ```
 
-### Step 5: Verification & Testing
-Execute the complete test suite to validate Spot node scaling, ESO secret sync, network policy isolation, and ALB ingress:
+### Stage 3: Cluster Authentication
 ```bash
-./scripts/verify.sh
+aws eks update-kubeconfig --name cloud-retail-eks --region us-east-1
+kubectl get nodes
 ```
 
-### Step 6: FinOps Teardown ("Spin-and-Kill Routine")
-To prevent credit consumption when you finish testing:
+### Stage 4: Deploy Platform Controllers via Helm CLI
 ```bash
-./scripts/teardown.sh
+# 1. External Secrets Operator (ESO)
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update external-secrets
+ESO_ROLE_ARN=$(terraform -chdir=infrastructure output -raw eso_role_arn)
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace --set installCRDs=true \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${ESO_ROLE_ARN}"
+
+# 2. AWS Load Balancer Controller
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+ALB_ROLE_ARN=$(terraform -chdir=infrastructure output -raw alb_controller_role_arn)
+VPC_ID=$(aws eks describe-cluster --name cloud-retail-eks --region us-east-1 --query "cluster.resourcesVpcConfig.vpcId" --output text)
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: ${ALB_ROLE_ARN}
+EOF
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system --set clusterName=cloud-retail-eks \
+  --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=us-east-1 --set vpcId=${VPC_ID}
+
+# 3. Karpenter Spot Autoscaler
+KARPENTER_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/cloud-retail-eks-karpenter-controller-role"
+helm install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  --version "1.0.1" -n karpenter --create-namespace \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${KARPENTER_ROLE_ARN}" \
+  --set settings.clusterName=cloud-retail-eks \
+  --set settings.interruptionQueue=cloud-retail-eks-karpenter
+
+# Apply Karpenter Spot NodePool and EC2NodeClass
+kubectl apply -f manifests/karpenter/ec2nodeclass.yaml
+kubectl apply -f manifests/karpenter/nodepool.yaml
 ```
 
----
+### Stage 5: Configure Secrets Integration (ESO & RDS)
+```bash
+kubectl apply -f manifests/eso/cluster-secret-store.yaml
+kubectl apply -f manifests/backend/namespace.yaml
+kubectl apply -f manifests/backend/external-secret.yaml
+
+# Verify Secret synchronization
+kubectl get externalsecrets -n backend
+kubectl get secret rds-credentials -n backend
+```
+
+### Stage 6: Deploy Microservices & Ingress
+```bash
+# Backend Deployment & Service
+kubectl apply -f manifests/backend/deployment.yaml
+kubectl apply -f manifests/backend/service.yaml
+kubectl logs -n backend -l app=backend-api --tail=30  # Confirms DB auto-seeding
+
+# Frontend Deployment, Service, and ALB Ingress
+kubectl apply -f manifests/frontend/namespace.yaml
+kubectl apply -f manifests/frontend/deployment.yaml
+kubectl apply -f manifests/frontend/service.yaml
+kubectl apply -f manifests/frontend/ingress.yaml
+
+# Retrieve Public ALB URL
+kubectl get ingress -n frontend retail-frontend-ingress
+```
+
+### Stage 7: Network Policy & Security Verification
+```bash
+kubectl apply -f manifests/backend/network-policy.yaml
+
+# Test A (Blocked): Curl from default namespace (times out)
+kubectl run curl-test --image=curlimages/curl -n default -i --tty --rm -- \
+  curl -m 4 http://backend-api.backend.svc.cluster.local:8000/api/health
+
+# Test B (Allowed): Query from frontend pod (returns 200 OK)
+FRONTEND_POD=$(kubectl get pods -n frontend -l app=frontend-ui -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n frontend -it $FRONTEND_POD -- wget -qO- http://backend-api.backend.svc.cluster.local:8000/api/health
+```
+
+### Stage 8: Clean Cloud Teardown (FinOps Credit Protection)
+```bash
+# Release ALB and remove workloads
+kubectl delete ingress retail-frontend-ingress -n frontend
+sleep 30
+kubectl delete namespace frontend backend
+
+# Destroy AWS Cloud Infrastructure
+cd infrastructure
+terraform destroy -auto-approve
+```
+
+*(Optional shortcut: Run `./scripts/deploy.sh`, `./scripts/verify.sh`, and `./scripts/teardown.sh` if you prefer automated script execution).*
+
 
 ## 6. Verification Proofs Summary
 

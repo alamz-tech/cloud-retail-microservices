@@ -1,7 +1,8 @@
 # ==============================================================================
-# 1. Karpenter Controller (OCI Helm Chart)
+# 1. Karpenter Controller (OCI Helm Chart - Optional via Terraform)
 # ==============================================================================
 resource "helm_release" "karpenter" {
+  count            = var.install_helm_controllers ? 1 : 0
   namespace        = "karpenter"
   create_namespace = true
   name             = "karpenter"
@@ -31,9 +32,10 @@ resource "helm_release" "karpenter" {
 }
 
 # ==============================================================================
-# 2. External Secrets Operator (ESO)
+# 2. External Secrets Operator (ESO - Optional via Terraform)
 # ==============================================================================
 resource "helm_release" "external_secrets" {
+  count            = var.install_helm_controllers ? 1 : 0
   name             = "external-secrets"
   repository       = "https://charts.external-secrets.io"
   chart            = "external-secrets"
@@ -58,9 +60,10 @@ resource "helm_release" "external_secrets" {
 }
 
 # ==============================================================================
-# 3. AWS Load Balancer Controller
+# 3. AWS Load Balancer Controller (Optional via Terraform)
 # ==============================================================================
 resource "kubernetes_service_account" "aws_load_balancer_controller" {
+  count     = var.install_helm_controllers ? 1 : 0
   metadata {
     name      = "aws-load-balancer-controller"
     namespace = "kube-system"
@@ -73,6 +76,7 @@ resource "kubernetes_service_account" "aws_load_balancer_controller" {
 }
 
 resource "helm_release" "aws_load_balancer_controller" {
+  count      = var.install_helm_controllers ? 1 : 0
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
@@ -91,7 +95,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   set {
     name  = "serviceAccount.name"
-    value = kubernetes_service_account.aws_load_balancer_controller.metadata[0].name
+    value = kubernetes_service_account.aws_load_balancer_controller[0].metadata[0].name
   }
 
   set {
