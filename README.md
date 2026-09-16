@@ -1,171 +1,212 @@
-# Cloud Retail Microservices Platform
+# Secure 3-Tier Microservices Platform on Amazon EKS
+### Production-Grade Infrastructure, Dynamic Spot Autoscaling, and Zero-Trust Platform Security
 
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-EKS%201.29+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![NGINX](https://img.shields.io/badge/NGINX-Unprivileged-009639?logo=nginx&logoColor=white)](https://nginx.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-RDS%2016-336791?logo=postgresql&logoColor=white)](https://aws.amazon.com/rds/)
-
-A self-contained, production-grade 3-tier microservices workload designed for deployment on Amazon EKS.
-
-The codebase is engineered so that **Docker handles 100% of compilation and dependency management** (multi-stage builds), and the backend microservice **automatically initialises its database schema and seeds initial retail catalog items on startup**.
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-EKS%201.30-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Terraform](https://img.shields.io/badge/Terraform-1.5+-844FBA?logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Karpenter](https://img.shields.io/badge/Karpenter-v1.0+-00B4D8?logo=amazon-aws&logoColor=white)](https://karpenter.sh/)
+[![External%20Secrets](https://img.shields.io/badge/External%20Secrets-v0.9+-black?logo=kubernetes&logoColor=white)](https://external-secrets.io/)
+[![AWS%20ALB](https://img.shields.io/badge/AWS-ALB%20Controller-FF9900?logo=amazon-aws&logoColor=white)](https://aws.amazon.com/elasticloadbalancing/)
+[![PostgreSQL](https://img.shields.io/badge/RDS-PostgreSQL%2016-336791?logo=postgresql&logoColor=white)](https://aws.amazon.com/rds/)
 
 ---
 
-## Architecture Overview
+## 1. Executive Summary & Architecture Overview
 
-```text
-                                 INTERNET
-                                    │
-                                    ▼
-                     ┌─────────────────────────────┐
-                     │ AWS Application Load Balancer│ (ALB Ingress)
-                     └──────────────┬──────────────┘
-                                    │ HTTP :80
-                                    ▼
-       ┌────────────────────────────────────────────────────────┐
-       │ Kubernetes Namespace: frontend                         │
-       │                                                        │
-       │   ┌──────────────────────────────────────────────┐     │
-       │   │ Pod: frontend-ui (NGINX Unprivileged :8080)  │     │
-       │   │  • Serves React 18 SPA static bundle         │     │
-       │   │  • Reverse proxies /api/* to internal DNS   │     │
-       │   └──────────────────────┬───────────────────────┘     │
-       └──────────────────────────┼─────────────────────────────┘
-                                  │ Private K8s DNS:
-                                  │ http://backend-api.backend.svc.cluster.local:8000
-                                  ▼
-       ┌────────────────────────────────────────────────────────┐
-       │ Kubernetes Namespace: backend                          │
-       │   [NetworkPolicy: Ingress restricted to frontend pods] │
-       │                                                        │
-       │   ┌──────────────────────────────────────────────┐     │
-       │   │ Pod: backend-api (FastAPI Python 3.11 :8000) │     │
-       │   │  • Non-root runtime (UID 10001)              │     │
-       │   │  • Auto-seeds catalog items on startup       │     │
-       │   └──────────────────────┬───────────────────────┘     │
-       └──────────────────────────┼─────────────────────────────┘
-                                  │
-               ┌──────────────────┴──────────────────┐
-               │                                     │
-               ▼                                     ▼
-┌───────────────────────────────┐     ┌───────────────────────────────┐
-│ AWS Secrets Manager           │     │ Amazon RDS (PostgreSQL)       │
-│ retail-app/rds/credentials    │     │ Private Database Subnet       │
-│ (Synced via External Secrets) │     │ db.t4g.micro / port 5432      │
-└───────────────────────────────┘     └───────────────────────────────┘
+This repository contains the complete Infrastructure as Code (IaC) and cloud-native platform manifests for deploying an enterprise-grade, cost-optimized, 3-tier retail microservices platform on **Amazon Elastic Kubernetes Service (EKS)**.
+
+The platform is designed following **Zero-Trust Security Principles**, **Least-Privilege Identity Management (IRSA)**, and **FinOps Cloud Budget Optimization**.
+
+```
+                                      INTERNET
+                                         │
+                                         ▼
+                     ┌────────────────────────────────────────┐
+                     │    AWS Application Load Balancer       │  (Managed by AWS Load
+                     │       (Internet-Facing Ingress)        │   Balancer Controller)
+                     └───────────────────┬────────────────────┘
+                                         │ HTTP :80
+                                         ▼
+       ┌─────────────────────────────────────────────────────────────────────────┐
+       │ Kubernetes Namespace: frontend                                          │
+       │                                                                         │
+       │   ┌────────────────────────────────────────────────────────┐            │
+       │   │ Pod: frontend-ui (2 Replicas)                          │            │
+       │   │  • Unprivileged NGINX (UID 101, non-root, drop ALL)    │            │
+       │   │  • Serves React 18 SPA static assets                   │            │
+       │   │  • Reverse-proxies /api/* to internal cluster DNS      │            │
+       │   └───────────────────────────┬────────────────────────────┘            │
+       └───────────────────────────────┼─────────────────────────────────────────┘
+                                       │ Private Cluster DNS:
+                                       │ http://backend-api.backend.svc.cluster.local:8000
+                                       ▼
+       ┌─────────────────────────────────────────────────────────────────────────┐
+       │ Kubernetes Namespace: backend                                           │
+       │   [NetworkPolicy: Drops 100% of ingress unless from frontend namespace] │
+       │                                                                         │
+       │   ┌────────────────────────────────────────────────────────┐            │
+       │   │ Pod: backend-api (2 Replicas)                          │            │
+       │   │  • Python 3.11 FastAPI (UID 10001, drop ALL cap)       │            │
+       │   │  • Auto-seeds 3 initial retail items on startup        │            │
+       │   │  • Secrets injected securely from AWS Secrets Manager  │            │
+       │   └───────────────────────────┬────────────────────────────┘            │
+       └───────────────────────────────┼─────────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    │                                     │
+                    ▼                                     ▼
+     ┌───────────────────────────────┐     ┌───────────────────────────────┐
+     │ AWS Secrets Manager           │     │ Amazon RDS PostgreSQL 16      │
+     │ retail-app/rds/credentials    │     │ Private Subnet (Non-public)   │
+     │ (Synced via External Secrets) │     │ db.t4g.micro / Port 5432      │
+     └───────────────────────────────┘     └───────────────────────────────┘
 ```
 
 ---
 
-## Repository Structure
+## 2. Core Platform Capabilities & Innovations
+
+| Pillar | Implementation | Technical Benefit |
+| :--- | :--- | :--- |
+| **FinOps & Spot Scaling** | **Karpenter v1.0+** with `NodePool` & `EC2NodeClass` | Dynamically provisions burstable EC2 Spot instances (`t3.small`, `t3.medium`) for worker workloads, achieving up to 90% cost savings over on-demand rates. |
+| **Secret Management** | **External Secrets Operator (ESO)** | Zero secrets stored in Git or plaintext. Synchronizes JSON credentials directly from AWS Secrets Manager to native Kubernetes Secrets with automated rotation. |
+| **Identity & Access** | **IAM Roles for Service Accounts (IRSA)** | Pods assume fine-grained AWS IAM roles via OIDC WebIdentity federation without static AWS access keys or node-level shared credentials. |
+| **Network Isolation** | **VPC CNI Network Policy Agent** | Hardware-level pod network isolation. Drops all unauthorized traffic to `backend-api` on port 8000 unless originating from pods in the `frontend` namespace. |
+| **Ingress Architecture** | **AWS Load Balancer Controller** | Provisions an Application Load Balancer in public subnets with IP target routing directly to unprivileged frontend pods. Backend remains completely private. |
+| **Database Isolation** | **Private Amazon RDS (db.t4g.micro)** | Multi-AZ ready, placed in isolated database subnets without Internet or NAT routing. Security groups allow ingress on TCP 5432 strictly from EKS node security groups. |
+
+---
+
+## 3. IAM Roles for Service Accounts (IRSA) Least-Privilege Matrix
+
+To satisfy enterprise compliance and strict least-privilege access control, all Kubernetes components authenticate using AWS IAM Roles for Service Accounts (IRSA):
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 IRSA SECURITY MATRIX                                   │
+├───────────────────────────────┬─────────────────────────┬──────────────────────────────┤
+│ Kubernetes Component          │ ServiceAccount          │ AWS IAM Policy Scope         │
+├───────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+│ External Secrets Operator     │ external-secrets:       │ secretsmanager:GetSecretValue│
+│ (ESO) Controller              │ external-secrets        │ secretsmanager:DescribeSecret│
+│                               │                         │ Resource: retail-app/rds/*   │
+├───────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+│ AWS Load Balancer Controller  │ kube-system:            │ AWSLoadBalancerController    │
+│                               │ aws-load-balancer-ctrl  │ Limited to VPC & ALBs        │
+├───────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+│ Karpenter Autoscaler          │ karpenter:              │ ec2:RunInstances, Fleet,     │
+│ Controller                    │ karpenter               │ PassRole to Node Role, SQS   │
+├───────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+│ Karpenter Node Instance       │ IAM Instance Profile    │ WorkerNodePolicy, CNI_Policy,│
+│ (EC2 Worker Nodes)            │ (cloud-retail-karpenter)│ ECRReadOnly, SSMManagedCore  │
+└───────────────────────────────┴─────────────────────────┴──────────────────────────────┘
+```
+
+---
+
+## 4. Repository Structure
 
 ```text
-cloud-retail-microservices/
-├── frontend-ui/
-│   ├── src/                     # React single-page UI (Vite)
-│   │   ├── App.jsx              # Dashboard UI, metrics cards, catalog table, & error state
-│   │   ├── main.jsx             # React DOM root mounting
-│   │   └── index.css            # Clean responsive stylesheet (zero external CSS dependencies)
-│   ├── index.html               # HTML entrypoint
-│   ├── package.json             # NPM project definitions
-│   ├── vite.config.js           # Vite configuration
-│   ├── nginx.conf               # Hardened unprivileged NGINX with reverse proxy to backend
-│   ├── Dockerfile               # Multi-stage build (Node 20 build -> NGINX Alpine)
-│   └── k8s/
-│       ├── namespace.yaml       # 'frontend' namespace manifest
-│       ├── deployment.yaml      # Non-root deployment, dropped Linux capabilities
-│       ├── service.yaml         # ClusterIP service (port 80 -> 8080)
-│       └── ingress.yaml         # AWS ALB Ingress configuration
-├── backend-api/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI service connecting to PostgreSQL
-│   │   ├── database.py          # SQLAlchemy setup, connection retry, & auto-seeding
-│   │   └── models.py            # SQLAlchemy models
-│   ├── requirements.txt         # Production Python dependencies
-│   ├── Dockerfile               # Multi-stage non-root Python build (UID 10001)
-│   └── k8s/
-│       ├── namespace.yaml       # 'backend' namespace manifest
-│       ├── deployment.yaml      # Hardened deployment with ESO secret injection
-│       ├── service.yaml         # Internal ClusterIP service (port 8000)
-│       ├── external-secret.yaml # ESO Custom Resource to fetch RDS credentials
-│       └── network-policy.yaml  # Network isolation: drops non-frontend traffic
-├── .gitignore
+.
+├── infrastructure/               # Terraform Infrastructure Code
+│   ├── versions.tf               # Terraform & Provider configurations
+│   ├── variables.tf              # Configurable input parameters
+│   ├── vpc.tf                    # Custom VPC, 3-tier subnets, IGW & NAT Gateway
+│   ├── eks.tf                    # EKS Cluster, OIDC provider, Addons & Node Group
+│   ├── karpenter.tf              # Karpenter IAM roles, SQS interruption & EC2 profile
+│   ├── rds.tf                    # Amazon RDS PostgreSQL db.t4g.micro & security group
+│   ├── secrets_manager.tf        # AWS Secrets Manager secret & JSON version
+│   ├── irsa.tf                   # ECR repositories & IRSA policies (ESO, ALB Controller)
+│   ├── helm_controllers.tf       # Helm releases for Karpenter, ESO, ALB Controller
+│   ├── outputs.tf                # Cluster endpoints, role ARNs, database host
+│   └── terraform.tfvars.example  # Sample variable overrides
+├── manifests/                    # Kubernetes Platform & Application Manifests
+│   ├── karpenter/
+│   │   ├── nodepool.yaml         # Spot instance pool (t3.small, t3.medium)
+│   │   └── ec2nodeclass.yaml     # Subnet and SecurityGroup discovery spec
+│   ├── eso/
+│   │   └── cluster-secret-store.yaml # ClusterSecretStore targeting AWS Secrets Manager
+│   ├── backend/
+│   │   ├── namespace.yaml        # 'backend' namespace
+│   │   ├── external-secret.yaml  # ESO secret sync manifest
+│   │   ├── deployment.yaml       # Python FastAPI deployment (UID 10001)
+│   │   ├── service.yaml          # ClusterIP service (:8000)
+│   │   └── network-policy.yaml   # Ingress lockdown (frontend only)
+│   └── frontend/
+│       ├── namespace.yaml        # 'frontend' namespace
+│       ├── deployment.yaml       # Rootless NGINX deployment (UID 101)
+│       ├── service.yaml          # ClusterIP service (:80 -> :8080)
+│       └── ingress.yaml          # AWS ALB Ingress specification
+├── scripts/                      # Operational Automation Scripts
+│   ├── build-and-push.sh         # Docker multi-stage build and ECR push
+│   ├── deploy.sh                 # Full platform deployment orchestrator
+│   ├── verify.sh                 # Comprehensive validation test suite
+│   └── teardown.sh               # Graceful cloud teardown (FinOps spin-and-kill)
+├── frontend-ui/                  # React 18 + Vite frontend source & Dockerfile
+├── backend-api/                  # FastAPI + SQLAlchemy backend source & Dockerfile
+├── EVIDENCE.md                   # Capstone verification proofs and terminal logs
+├── VIDEO_WALKTHROUGH_SCRIPT.md   # Presentation script for grading demonstration
 └── README.md
 ```
 
 ---
 
-## Component Specifications
+## 5. Step-by-Step Operator Runbook
 
-### 1. Frontend (`frontend-ui`)
-* **Framework:** Lightweight React using Vite.
-* **Dashboard Features:**
-  * Header displaying `"Cloud Retail Internal Dashboard"`.
-  * Real-time metrics overview: Catalog Products, Units in Stock, Inventory Valuation, and Database Connection.
-  * Live catalog card/table querying `/api/products` with item status tags (`In Stock`, `Low Stock`, `Out of Stock`).
-  * Explicit, user-friendly error banners and connection diagnostics if the backend or database is unreachable.
-* **NGINX Configuration (`nginx.conf`):**
-  * Runs as an unprivileged user on port `8080`.
-  * Serves compiled static assets from `/usr/share/nginx/html`.
-  * Reverse proxy block forwarding `/api/` requests to the internal Kubernetes DNS name of the backend (`http://backend-api.backend.svc.cluster.local:8000/api/`). This avoids CORS issues and keeps the backend private.
-  * Health probe endpoint at `/healthz` for ALB target group checks.
-* **Dockerfile:**
-  * Stage 1: `node:20-alpine` runs `npm install` and `npm run build`.
-  * Stage 2: `nginxinc/nginx-unprivileged:alpine` copies `/dist` output and runs rootless.
-
-### 2. Backend (`backend-api`)
-* **Framework:** Python FastAPI with `SQLAlchemy` and `psycopg2-binary`.
-* **Endpoints:**
-  * `GET /api/health`: Health probe endpoint validating microservice and PostgreSQL database status.
-  * `GET /api/products`: Queries the `products` table and returns catalog items (`id`, `name`, `description`, `price`, `stock`).
-* **Database Auto-Seeding:**
-  * Auto-executes `Base.metadata.create_all(bind=engine)` upon container startup.
-  * Checks if the `products` table is empty (`count == 0`).
-  * If empty, automatically inserts 3 initial retail items:
-    1. **Mechanical Keyboard** ($129.99, Stock: 45)
-    2. **Wireless Mouse** ($49.99, Stock: 120)
-    3. **USB-C Hub** ($34.50, Stock: 80)
-* **Configuration:**
-  * Reads `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` from environment variables (with URL-encoding for RDS password resilience).
-* **Dockerfile:**
-  * Multi-stage build on `python:3.11-slim`.
-  * Runs as non-root user `appuser` (`UID 10001`, `GID 10001`).
-  * Contains no compilers or build tools in final runtime image.
-
----
-
-## Container Build & Packaging
-
-Build and tag both container images using Docker:
-
+### Step 1: Authentication & Docker Setup
+Ensure your AWS credentials and Docker daemon are active:
 ```bash
-# Build the frontend (compiles React and packages into NGINX rootless)
-docker build -t <your-ecr-registry-uri>/retail-frontend:v1 ./frontend-ui
+# Verify AWS credentials
+export AWS_REGION="us-east-1"
+export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+echo "Deploying into AWS Account: ${AWS_ACCOUNT_ID} in ${AWS_REGION}"
 
-# Build the backend (packages FastAPI in non-root Python runtime)
-docker build -t <your-ecr-registry-uri>/retail-backend:v1 ./backend-api
+# Launch Docker Desktop if not running
+open -a Docker
+```
+
+### Step 2: Zero-Code Container Packaging
+Build and push both microservice containers to private Amazon ECR:
+```bash
+./scripts/build-and-push.sh
+```
+
+### Step 3: Infrastructure Provisioning (Terraform)
+Apply the infrastructure code to provision VPC, EKS, RDS, and Controllers:
+```bash
+cd infrastructure
+terraform init
+terraform apply -auto-approve
+```
+
+### Step 4: Workload Deployment
+Deploy Karpenter NodePools, ExternalSecrets, and microservices:
+```bash
+cd ..
+./scripts/deploy.sh
+```
+
+### Step 5: Verification & Testing
+Execute the complete test suite to validate Spot node scaling, ESO secret sync, network policy isolation, and ALB ingress:
+```bash
+./scripts/verify.sh
+```
+
+### Step 6: FinOps Teardown ("Spin-and-Kill Routine")
+To prevent credit consumption when you finish testing:
+```bash
+./scripts/teardown.sh
 ```
 
 ---
 
-## Kubernetes Manifests Reference
+## 6. Verification Proofs Summary
 
-### Backend (`backend-api/k8s/`)
-| Manifest | Description |
-| :--- | :--- |
-| `namespace.yaml` | Declares the `backend` namespace. |
-| `deployment.yaml` | Hardened deployment running under UID 10001 with dropped capabilities and credentials loaded from Secret `rds-credentials`. |
-| `service.yaml` | Internal `ClusterIP` service exposing port `8000` (`backend-api.backend.svc.cluster.local`). |
-| `external-secret.yaml` | External Secrets Operator resource targeting AWS Secrets Manager secret `retail-app/rds/credentials`. |
-| `network-policy.yaml` | Restricts ingress to `backend-api` on port 8000 to only pods labeled with namespace `frontend`. |
+| Check | Command | Expected Result |
+| :--- | :--- | :--- |
+| **Spot Nodes** | `kubectl get nodes -L karpenter.sh/capacity-type` | Shows `karpenter.sh/capacity-type: spot` |
+| **External Secrets** | `kubectl get externalsecrets -A` | `STATUS: SecretSynced`, `READY: True` |
+| **Blocked Ingress** | `kubectl run curl-test ... -n default` | `curl: (28) Connection timed out` |
+| **Allowed Ingress** | `kubectl exec -n frontend ... wget` | `{"status":"healthy","database":"connected"}` |
+| **Teardown** | `terraform destroy -auto-approve` | `Destroy complete! Resources: 38 destroyed.` |
 
-### Frontend (`frontend-ui/k8s/`)
-| Manifest | Description |
-| :--- | :--- |
-| `namespace.yaml` | Declares the `frontend` namespace. |
-| `deployment.yaml` | Unprivileged deployment running under UID 101 on containerPort `8080` with dropped capabilities. |
-| `service.yaml` | `ClusterIP` service exposing port `80` targeting port `8080`. |
-| `ingress.yaml` | Ingress resource configured for the AWS Load Balancer Controller (`internet-facing` ALB, target-type `ip`). |
+Detailed terminal logs and screenshots are documented in [EVIDENCE.md](file:///Users/husseinalamutu/.gemini/antigravity/scratch/cloud-retail-microservices/EVIDENCE.md).

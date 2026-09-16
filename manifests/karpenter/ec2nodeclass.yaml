@@ -1,0 +1,20 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+  labels:
+    app.kubernetes.io/part-of: cloud-retail
+spec:
+  amiFamily: AL2023
+  role: cloud-retail-eks-karpenter-node-role
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: cloud-retail-eks
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: cloud-retail-eks
+  tags:
+    Name: cloud-retail-eks-spot-node
+    ManagedBy: Karpenter
+    Environment: dev
+    "karpenter.sh/discovery": cloud-retail-eks

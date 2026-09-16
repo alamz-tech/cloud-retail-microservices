@@ -1,0 +1,40 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spot-workers
+  labels:
+    app.kubernetes.io/part-of: cloud-retail
+spec:
+  template:
+    metadata:
+      labels:
+        role: worker
+        workload: retail
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        # Enforce EC2 Spot Instances for 90% FinOps cost savings
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+        # Limit instance families to cost-effective burstable general-purpose instances
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.small", "t3.medium"]
+        # Support amd64 architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+  # Disruptive consolidation to downscale idle spot nodes immediately
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
+  limits:
+    cpu: "20"
+    memory: 40Gi

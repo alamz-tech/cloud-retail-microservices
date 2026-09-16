@@ -1,0 +1,9 @@
+aws_region         = "us-east-1"
+environment        = "dev"
+cluster_name       = "cloud-retail-eks"
+kubernetes_version = "1.30"
+vpc_cidr           = "10.0.0.0/16"
+db_instance_class  = "db.t4g.micro"
+db_allocated_storage = 20
+db_name            = "retail_db"
+db_username        = "postgres"

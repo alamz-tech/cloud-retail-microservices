@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-ui
+  namespace: frontend
+  labels:
+    app: frontend-ui
+    tier: web
+    app.kubernetes.io/name: frontend-ui
+    app.kubernetes.io/part-of: cloud-retail
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend-ui
+  template:
+    metadata:
+      labels:
+        app: frontend-ui
+        tier: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # nginx unprivileged user
+        runAsGroup: 101
+        fsGroup: 101
+      containers:
+        - name: frontend-ui
+          image: 211078959084.dkr.ecr.us-east-1.amazonaws.com/retail-frontend:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
