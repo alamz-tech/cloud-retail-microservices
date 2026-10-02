@@ -1,34 +1,14 @@
 data "aws_caller_identity" "current" {}
 
 # ==============================================================================
-# 1. ECR Repositories for Microservices Images
+# 1. ECR Repositories for Microservices Images (Provisioned in Step 1)
 # ==============================================================================
-resource "aws_ecr_repository" "frontend" {
-  name                 = "retail-frontend"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name = "retail-frontend"
-  }
+data "aws_ecr_repository" "frontend" {
+  name = "retail-frontend"
 }
 
-resource "aws_ecr_repository" "backend" {
-  name                 = "retail-backend"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name = "retail-backend"
-  }
+data "aws_ecr_repository" "backend" {
+  name = "retail-backend"
 }
 
 # ==============================================================================
@@ -158,7 +138,8 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeTargetGroupAttributes",
           "elasticloadbalancing:DescribeTargetHealth",
-          "elasticloadbalancing:DescribeTags"
+          "elasticloadbalancing:DescribeTags",
+          "elasticloadbalancing:DescribeListenerAttributes"
         ]
         Resource = "*"
       },
@@ -248,7 +229,8 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:ModifyListener",
           "elasticloadbalancing:AddListenerCertificates",
           "elasticloadbalancing:RemoveListenerCertificates",
-          "elasticloadbalancing:ModifyRule"
+          "elasticloadbalancing:ModifyRule",
+          "elasticloadbalancing:ModifyListenerAttributes"
         ]
         Resource = "*"
       }

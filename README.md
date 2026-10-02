@@ -302,3 +302,40 @@ terraform destroy -auto-approve
 | **Teardown** | `terraform destroy -auto-approve` | `Destroy complete! Resources: 38 destroyed.` |
 
 Detailed terminal logs and screenshots are documented in [EVIDENCE.md](file:///Users/husseinalamutu/.gemini/antigravity/scratch/cloud-retail-microservices/EVIDENCE.md).
+
+---
+
+## 7. Automated CI/CD Pipeline & GitHub Actions OIDC
+
+To eliminate manual deployment steps in production, this repository includes an enterprise-grade CI/CD pipeline powered by **GitHub Actions** and **AWS OpenID Connect (OIDC)** identity federation:
+
+### Architecture: Keyless Continuous Delivery
+```
+Developer Commit / PR
+         │
+         ▼
+[ GitHub Actions CI Gate ]
+├── Flake8 Syntax & Code Standards
+├── Pytest Automated Unit Tests
+├── Frontend React Vite Build Validation
+├── Terraform Format & Validate
+└── Kubernetes Manifest Client Dry-Run
+         │ (Merge to main)
+         ▼
+[ GitHub Actions CD Delivery ]
+├── AWS OIDC WebIdentity Federation (No static keys in GitHub!)
+├── Docker Buildx (linux/amd64) with GitHub Actions Layer Caching
+├── Push to Amazon ECR (Tagged with Git Commit SHA)
+├── Rolling Update on Amazon EKS (kubectl set image)
+├── Rollout Status Verification (kubectl rollout status)
+└── Automated Smoke Test against Live AWS Application Load Balancer
+```
+
+### Key Workflows
+* **`ci.yaml` (PR Quality Gate):** Triggers on all pull requests targeting `main`. Rejects non-compliant code before merge.
+* **`cd.yaml` (Production Delivery):** Triggers on merges to `main`. Assumes the `cloud-retail-eks-github-actions-role` via AWS STS OIDC, pushes immutable images to ECR, executes zero-downtime rolling updates on EKS, and runs live smoke tests against the Application Load Balancer.
+
+### Student Assignment Brief
+The formal student project brief for this module is available as:
+* 📄 **Microsoft Word Format:** [`Capstone_Project_Brief_CICD_EKS.docx`](file:///Users/husseinalamutu/.gemini/antigravity/scratch/cloud-retail-microservices/Capstone_Project_Brief_CICD_EKS.docx)
+* 🌐 **HTML Format:** [`Capstone_Project_Brief_CICD_EKS.html`](file:///Users/husseinalamutu/.gemini/antigravity/scratch/cloud-retail-microservices/Capstone_Project_Brief_CICD_EKS.html)

@@ -18,12 +18,12 @@ resource "aws_sqs_queue_policy" "karpenter_interruption" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect    = "Allow"
+        Effect = "Allow"
         Principal = {
           Service = ["events.amazonaws.com", "sqs.amazonaws.com"]
         }
-        Action    = "sqs:SendMessage"
-        Resource  = aws_sqs_queue.karpenter_interruption.arn
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.karpenter_interruption.arn
       }
     ]
   })
@@ -115,7 +115,14 @@ resource "aws_iam_policy" "karpenter_controller" {
           "ec2:CreateLaunchTemplate",
           "ec2:CreateFleet",
           "ec2:DescribeSpotPriceHistory",
-          "pricing:GetProducts"
+          "pricing:GetProducts",
+          "eks:DescribeCluster",
+          "iam:GetInstanceProfile",
+          "iam:CreateInstanceProfile",
+          "iam:TagInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "iam:DeleteInstanceProfile"
         ]
         Resource = "*"
       },

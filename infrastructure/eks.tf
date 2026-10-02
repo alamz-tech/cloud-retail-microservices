@@ -87,8 +87,8 @@ resource "aws_security_group" "nodes" {
   }
 
   tags = {
-    Name                                           = "${var.cluster_name}-node-sg"
-    "karpenter.sh/discovery"                       = var.cluster_name
+    Name                                        = "${var.cluster_name}-node-sg"
+    "karpenter.sh/discovery"                    = var.cluster_name
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
@@ -115,6 +115,11 @@ resource "aws_eks_cluster" "main" {
     security_group_ids      = [aws_security_group.cluster.id]
     endpoint_private_access = true
     endpoint_public_access  = true
+  }
+
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
   }
 
   depends_on = [
@@ -203,6 +208,7 @@ resource "aws_eks_node_group" "bootstrap" {
 
   instance_types = ["t3.medium"]
   capacity_type  = "SPOT"
+  ami_type       = "AL2023_x86_64_STANDARD"
 
   labels = {
     "role" = "system"

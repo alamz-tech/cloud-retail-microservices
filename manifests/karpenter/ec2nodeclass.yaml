@@ -7,6 +7,8 @@ metadata:
 spec:
   amiFamily: AL2023
   role: cloud-retail-eks-karpenter-node-role
+  amiSelectorTerms:
+    - alias: al2023@latest
   subnetSelectorTerms:
     - tags:
         karpenter.sh/discovery: cloud-retail-eks

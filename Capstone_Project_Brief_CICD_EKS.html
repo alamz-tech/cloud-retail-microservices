@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capstone Project Brief: End-to-End CI/CD Automation for Cloud Retail Microservices on Amazon EKS</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: #1e293b;
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 24px;
+  }
+  h1 {
+    font-size: 26pt;
+    color: #0f172a;
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: 14pt;
+    color: #475569;
+    font-weight: 500;
+    margin-bottom: 24px;
+  }
+  .metadata-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 28px;
+    background-color: #f8fafc;
+  }
+  .metadata-table td {
+    padding: 10px 14px;
+    border: 1px solid #cbd5e1;
+    font-size: 10.5pt;
+  }
+  .metadata-table td.label {
+    font-weight: bold;
+    width: 25%;
+    background-color: #f1f5f9;
+    color: #0f172a;
+  }
+  h2 {
+    font-size: 17pt;
+    color: #1d4ed8;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 6px;
+    margin-top: 36px;
+  }
+  h3 {
+    font-size: 12.5pt;
+    color: #0f172a;
+    margin-top: 22px;
+  }
+  p, li {
+    font-size: 11pt;
+  }
+  ul, ol {
+    padding-left: 24px;
+  }
+  li {
+    margin-bottom: 6px;
+  }
+  .callout {
+    background-color: #eff6ff;
+    border-left: 4px solid #2563eb;
+    padding: 12px 18px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout-warning {
+    background-color: #fefce8;
+    border-left: 4px solid #ca8a04;
+    padding: 12px 18px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout-danger {
+    background-color: #fef2f2;
+    border-left: 4px solid #dc2626;
+    padding: 12px 18px;
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .rubric-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+  }
+  .rubric-table th {
+    background-color: #1e293b;
+    color: #ffffff;
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 10.5pt;
+  }
+  .rubric-table td {
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    font-size: 10pt;
+  }
+  .rubric-table tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+  pre {
+    background-color: #0f172a;
+    color: #f8fafc;
+    border-radius: 6px;
+    padding: 14px 18px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 9.5pt;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 10pt;
+    background-color: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+  pre code {
+    background-color: transparent;
+    color: inherit;
+    padding: 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Capstone Project Brief: Enterprise CI/CD Pipeline Automation</h1>
+<div class="subtitle">Continuous Integration, Keyless AWS OIDC Federation, and Automated Zero-Downtime EKS Deliveries</div>
+
+<table class="metadata-table">
+  <tr>
+    <td class="label">Course / Program</td>
+    <td>Advanced Cloud Platform &amp; DevOps Engineering Capstone</td>
+    <td class="label">Target Platform</td>
+    <td>Amazon EKS (Kubernetes 1.31) &amp; AWS Services</td>
+  </tr>
+  <tr>
+    <td class="label">Project Title</td>
+    <td>Cloud Retail Automated Delivery Platform</td>
+    <td class="label">CI/CD Engine</td>
+    <td>GitHub Actions (OIDC WebIdentity Federation)</td>
+  </tr>
+  <tr>
+    <td class="label">Document Type</td>
+    <td>Official Student Assignment &amp; Technical Brief</td>
+    <td class="label">Prerequisites Completed</td>
+    <td>3-Tier EKS Platform Live (Terraform, Karpenter, ESO, ALB)</td>
+  </tr>
+  <tr>
+    <td class="label">Workload Architecture</td>
+    <td>React 18 SPA (Frontend) + FastAPI (Backend) + RDS PostgreSQL</td>
+    <td class="label">Security Standard</td>
+    <td>Zero Static Secrets, IRSA, Least Privilege, Non-Root</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <strong>Student Mission Statement:</strong><br>
+  In the preceding phase of this capstone, you manually provisioned a hardened 3-tier retail microservices architecture on Amazon EKS—incorporating Terraform IaaS, Karpenter Spot autoscaling, External Secrets Operator, and AWS Load Balancer Controller.
+  <br><br>
+  <strong>Your next critical objective is complete operational automation.</strong> You must design, implement, and validate an enterprise-grade, keyless CI/CD pipeline using GitHub Actions that automates software quality gates, container packaging to Amazon ECR, zero-downtime rolling updates to Amazon EKS, and post-deployment smoke testing.
+</div>
+
+<h2>1. Executive Project Overview</h2>
+<p>
+Modern platform engineering mandates that zero manual deployments occur in production environments. All code changes—from application logic to infrastructure manifests—must flow through an automated delivery pipeline that tests, verifies, builds, scans, and deploys without human intervention.
+</p>
+<p>
+This project brief tasks you with building an end-to-end <strong>Continuous Integration and Continuous Deployment (CI/CD)</strong> system for the <strong>Cloud Retail</strong> platform.
+</p>
+
+<h3>High-Level Architectural Flow</h3>
+<pre>
+Developer Commit / Pull Request
+             │
+             ▼
+   [ GitHub Actions CI Gate ]
+   ├── Linting (Flake8 / ESLint)
+   ├── Automated Unit Tests (Pytest)
+   ├── Terraform Validation (fmt -check, validate)
+   └── Kubernetes Manifest Dry-Run Validation
+             │ (PR Merged to main)
+             ▼
+   [ GitHub Actions CD Delivery ]
+   ├── Keyless AWS Authentication (OIDC STS AssumeRoleWithWebIdentity)
+   ├── Multi-Stage Docker Builds for linux/amd64 (Buildx + Layer Caching)
+   ├── Push to Amazon ECR with Immutable Git SHA Tags
+   ├── Rolling Update Deployment to Amazon EKS (kubectl set image)
+   ├── Rollout Verification (kubectl rollout status)
+   └── Automated Smoke Test against Live AWS Application Load Balancer
+</pre>
+
+<h2>2. Core Learning &amp; Engineering Objectives</h2>
+<p>Upon completing this project, students must demonstrate production competency in:</p>
+<ol>
+  <li><strong>Keyless Cloud Authentication:</strong> Eliminating long-lived static AWS access keys by configuring AWS IAM OpenID Connect (OIDC) federation with GitHub Actions.</li>
+  <li><strong>Multi-Tier Continuous Integration:</strong> Building automated quality gates that reject faulty Python, TypeScript/React, Terraform, or Kubernetes code before merging.</li>
+  <li><strong>Multi-Architecture Container Packaging:</strong> Creating optimized, reproducible Docker multi-stage builds targeted at <code>linux/amd64</code> with GitHub Actions caching to minimize build latency.</li>
+  <li><strong>Immutable Artifact Release Engineering:</strong> Tagging and deploying container images using Git commit SHAs (<code>${{ github.sha }}</code>) to guarantee total traceability.</li>
+  <li><strong>Zero-Downtime Kubernetes Deployments:</strong> Implementing automated rolling updates on Amazon EKS with progress deadlines and automated failure detection.</li>
+  <li><strong>Automated Platform Smoke Testing:</strong> Validating live ingress endpoints (HTTP 200 OK, database connectivity, catalog queries) via pipeline execution.</li>
+</ol>
+
+<h2>3. Detailed Scope of Work &amp; Technical Milestones</h2>
+
+<h3>Milestone 1: Automated Quality Gate (CI Workflow)</h3>
+<p>Create a dedicated pull-request validation workflow located at <code>.github/workflows/ci.yaml</code> that triggers on any pull request targeting the <code>main</code> branch. The workflow must execute four concurrent or sequential jobs:</p>
+<ul>
+  <li><strong>Backend Quality Gate:</strong> Sets up Python 3.11, installs application dependencies, executes syntax/lint checks via <code>flake8</code>, and runs automated unit/health tests using <code>pytest</code>.</li>
+  <li><strong>Frontend Quality Gate:</strong> Sets up Node.js 20, runs clean dependency installation (<code>npm ci</code>), and validates that the React SPA bundle compiles without errors (<code>npm run build</code>).</li>
+  <li><strong>Infrastructure Quality Gate:</strong> Runs <code>terraform fmt -check</code> and <code>terraform validate</code> in the <code>infrastructure/</code> directory.</li>
+  <li><strong>Kubernetes Manifest Gate:</strong> Performs client-side dry-run validation (<code>kubectl apply --dry-run=client</code>) across all manifests in <code>manifests/</code>.</li>
+</ul>
+
+<h3>Milestone 2: Keyless AWS OIDC IAM Infrastructure</h3>
+<p>Hardcoding <code>AWS_ACCESS_KEY_ID</code> and <code>AWS_SECRET_ACCESS_KEY</code> into GitHub Repository Secrets is strictly prohibited. You must configure keyless OpenID Connect (OIDC) identity federation in Terraform (<code>infrastructure/github_oidc.tf</code>):</p>
+<ul>
+  <li>Establish an AWS IAM OIDC Provider for <code>token.actions.githubusercontent.com</code> with audience <code>sts.amazonaws.com</code>.</li>
+  <li>Provision an IAM Role (<code>cloud-retail-github-actions-role</code>) with an <code>sts:AssumeRoleWithWebIdentity</code> trust policy strictly locked down to your GitHub repository:
+    <pre>StringEquals:
+  token.actions.githubusercontent.com:aud: "sts.amazonaws.com"
+StringLike:
+  token.actions.githubusercontent.com:sub: "repo:YOUR_GITHUB_ORG/YOUR_REPO:*"</pre>
+  </li>
+  <li>Attach fine-grained policies allowing ECR push/pull for <code>retail-frontend</code> and <code>retail-backend</code>, and <code>eks:DescribeCluster</code> for <code>cloud-retail-eks</code>.</li>
+  <li>Create an EKS Access Entry linking the GitHub Actions IAM role to Kubernetes RBAC to permit deployment rollouts.</li>
+</ul>
+
+<h3>Milestone 3: Automated Continuous Deployment (CD Workflow)</h3>
+<p>Create a deployment workflow at <code>.github/workflows/cd.yaml</code> that triggers automatically on any push or merge to the <code>main</code> branch:</p>
+<ul>
+  <li><strong>Job 1: Build &amp; Push to Amazon ECR:</strong>
+    <ul>
+      <li>Uses <code>aws-actions/configure-aws-credentials@v4</code> with <code>role-to-assume</code> (OIDC).</li>
+      <li>Uses Docker Buildx with GitHub Actions caching (<code>type=gha</code>).</li>
+      <li>Builds both <code>backend-api</code> and <code>frontend-ui</code> images for <code>--platform linux/amd64</code>.</li>
+      <li>Pushes images to ECR tagged with both <code>:latest</code> and <code>:${{ github.sha }}</code>.</li>
+    </ul>
+  </li>
+  <li><strong>Job 2: Zero-Downtime EKS Deployment &amp; Smoke Test:</strong>
+    <ul>
+      <li>Configures cluster authentication via <code>aws eks update-kubeconfig</code>.</li>
+      <li>Updates the active Kubernetes Deployments with the newly minted Git SHA image tag.</li>
+      <li>Waits for both rollouts using <code>kubectl rollout status</code> with explicit timeouts.</li>
+      <li>Extracts the public Application Load Balancer DNS address from <code>retail-frontend-ingress</code>.</li>
+      <li>Executes live automated curl tests against <code>/api/health</code> and <code>/api/products</code>, failing the pipeline if the HTTP status code is not 200 or the database connection is offline.</li>
+    </ul>
+  </li>
+</ul>
+
+<div class="callout-warning">
+  <strong>FinOps Alert:</strong><br>
+  Ensure your pipeline leverages GitHub Actions cache (<code>cache-from: type=gha</code>) to avoid rebuilding intermediate Docker layers on every commit. This reduces CI/CD runtime from 8+ minutes to under 90 seconds.
+</div>
+
+<h2>4. Evaluation &amp; Grading Rubric</h2>
+<table class="rubric-table">
+  <tr>
+    <th style="width: 25%;">Assessment Domain</th>
+    <th style="width: 15%;">Weight</th>
+    <th style="width: 60%;">Performance Criteria</th>
+  </tr>
+  <tr>
+    <td><strong>CI/CD Workflow Engineering</strong></td>
+    <td>35%</td>
+    <td>Clean, modular GitHub Actions YAML; separate CI (PR) and CD (merge) workflows; concurrency controls; automated rollouts with timeouts; post-deployment smoke test validation.</td>
+  </tr>
+  <tr>
+    <td><strong>Security &amp; Keyless OIDC</strong></td>
+    <td>30%</td>
+    <td>Zero static AWS keys used; AWS IAM OIDC Provider configured via Terraform; strict repository-scoped trust policy (<code>sub</code> and <code>aud</code>); least-privilege ECR &amp; EKS IAM permissions; non-root container runtimes.</td>
+  </tr>
+  <tr>
+    <td><strong>Container &amp; Release Engineering</strong></td>
+    <td>20%</td>
+    <td>Multi-stage Dockerfiles compiling clean static assets; explicit <code>--platform linux/amd64</code> builds; immutable image tagging with Git SHAs; GitHub Actions layer caching implemented.</td>
+  </tr>
+  <tr>
+    <td><strong>Documentation &amp; Evidence</strong></td>
+    <td>15%</td>
+    <td>Complete written operational runbook; terminal proof logs of successful CI/CD execution, ECR digests, Kubernetes rolling updates, and clean teardown verification.</td>
+  </tr>
+</table>
+
+<h2>5. Student Submission Deliverables Checklist</h2>
+<p>Each student must submit a complete Git repository containing:</p>
+<ul>
+  <li>[ ] <code>.github/workflows/ci.yaml</code> (PR quality gate: tests, lint, terraform check).</li>
+  <li>[ ] <code>.github/workflows/cd.yaml</code> (Main deployment pipeline: OIDC, ECR, EKS rollout, smoke test).</li>
+  <li>[ ] <code>infrastructure/github_oidc.tf</code> (Terraform code for IAM OIDC provider, role, and EKS access entry).</li>
+  <li>[ ] <code>backend-api/tests/</code> (Automated Pytest test suite for backend API).</li>
+  <li>[ ] <code>EVIDENCE.md</code> (Screenshots or CLI terminal transcripts showing:
+    <ul>
+      <li>Green GitHub Actions pipeline run (both CI and CD).</li>
+      <li>ECR repository containing images tagged with Git commit SHAs.</li>
+      <li>Successful Kubernetes rollout logs.</li>
+      <li>Passing smoke test verifying the live ALB URL).</li>
+    </ul>
+  </li>
+  <li>[ ] Updated <code>README.md</code> and <code>STEP_BY_STEP_RUNBOOK.md</code> documenting the CI/CD architecture.</li>
+</ul>
+
+<div class="callout-danger">
+  <strong>Strict Failure Conditions:</strong><br>
+  Submissions containing plaintext AWS Secret Keys in GitHub Secrets, builds failing on <code>arm64</code>/<code>amd64</code> architecture mismatches, or pipelines that lack automated rollback/failure checks will not receive a passing grade.
+</div>
+
+</body>
+</html>

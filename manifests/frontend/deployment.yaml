@@ -27,7 +27,7 @@ spec:
       containers:
         - name: frontend-ui
           image: 211078959084.dkr.ecr.us-east-1.amazonaws.com/retail-frontend:v1
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080

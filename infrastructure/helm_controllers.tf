@@ -63,7 +63,7 @@ resource "helm_release" "external_secrets" {
 # 3. AWS Load Balancer Controller (Optional via Terraform)
 # ==============================================================================
 resource "kubernetes_service_account" "aws_load_balancer_controller" {
-  count     = var.install_helm_controllers ? 1 : 0
+  count = var.install_helm_controllers ? 1 : 0
   metadata {
     name      = "aws-load-balancer-controller"
     namespace = "kube-system"

@@ -15,13 +15,16 @@ resource "aws_security_group" "rds" {
   description = "Control traffic to Amazon RDS PostgreSQL"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound TCP port 5432 ONLY from EKS worker node security group
+  # Allow inbound TCP port 5432 from both Karpenter nodes and EKS cluster/bootstrap nodes
   ingress {
-    description     = "Allow PostgreSQL access strictly from EKS worker nodes"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.nodes.id]
+    description = "Allow PostgreSQL access from EKS worker and cluster nodes"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    security_groups = [
+      aws_security_group.nodes.id,
+      aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+    ]
   }
 
   egress {

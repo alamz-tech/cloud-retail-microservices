@@ -1,0 +1,189 @@
+name: "CD Production Delivery"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend-api/**"
+      - "frontend-ui/**"
+      - "manifests/**"
+      - ".github/workflows/cd.yaml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # Mandatory for AWS OIDC WebIdentity Federation
+  contents: read
+
+concurrency:
+  group: production-eks-deployment
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: "us-east-1"
+  AWS_ACCOUNT_ID: "211078959084"
+  EKS_CLUSTER_NAME: "cloud-retail-eks"
+  OIDC_IAM_ROLE: "arn:aws:iam::211078959084:role/cloud-retail-eks-github-actions-role"
+
+jobs:
+  build-and-push:
+    name: "ECR: Buildx & Immutable SHA Push"
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      - name: "Compute Short Git SHA"
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: "Set up Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "Authenticate to AWS via Keyless OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: "sts.amazonaws.com"
+
+      - name: "Log in to Amazon ECR"
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "Build & Push Backend API Image (linux/amd64)"
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend-api
+          file: ./backend-api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/retail-backend:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/retail-backend:${{ steps.vars.outputs.sha_short }}
+            ${{ steps.login-ecr.outputs.registry }}/retail-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: "Build & Push Frontend UI Image (linux/amd64)"
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend-ui
+          file: ./frontend-ui/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/retail-frontend:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/retail-frontend:${{ steps.vars.outputs.sha_short }}
+            ${{ steps.login-ecr.outputs.registry }}/retail-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-to-eks:
+    name: "EKS: Zero-Downtime Rolling Update & Smoke Test"
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      - name: "Set up kubectl"
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+
+      - name: "Authenticate to AWS via Keyless OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: "sts.amazonaws.com"
+
+      - name: "Check EKS Cluster Status"
+        id: check-cluster
+        run: |
+          echo "Checking if EKS cluster ${{ env.EKS_CLUSTER_NAME }} is provisioned and active..."
+          STATUS=$(aws eks describe-cluster --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }} --query "cluster.status" --output text 2>/dev/null || echo "NOT_FOUND")
+          echo "Cluster status: $STATUS"
+          if [ "$STATUS" = "ACTIVE" ]; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+            echo "::notice::EKS cluster '${{ env.EKS_CLUSTER_NAME }}' is not in ACTIVE state (status: $STATUS). Skipping Kubernetes rolling updates and live smoke tests. To deploy after spinning up the cluster, trigger this workflow via workflow_dispatch."
+          fi
+
+      - name: "Configure EKS Kubeconfig"
+        if: steps.check-cluster.outputs.active == 'true'
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: "Deploy Workload Manifests"
+        if: steps.check-cluster.outputs.active == 'true'
+        run: |
+          echo "Applying foundational Kubernetes resources..."
+          kubectl apply -f manifests/backend/namespace.yaml
+          kubectl apply -f manifests/backend/service.yaml
+          kubectl apply -f manifests/backend/network-policy.yaml
+          kubectl apply -f manifests/backend/deployment.yaml
+
+          kubectl apply -f manifests/frontend/namespace.yaml
+          kubectl apply -f manifests/frontend/service.yaml
+          kubectl apply -f manifests/frontend/ingress.yaml
+          kubectl apply -f manifests/frontend/deployment.yaml
+
+      - name: "Trigger Rolling Update with Immutable Git SHA"
+        if: steps.check-cluster.outputs.active == 'true'
+        run: |
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "Updating deployment images to immutable commit SHA: ${{ github.sha }}"
+
+          kubectl set image deployment/backend-api \
+            backend-api=${ECR_REGISTRY}/retail-backend:${{ github.sha }} \
+            -n backend
+
+          kubectl set image deployment/frontend-ui \
+            frontend-ui=${ECR_REGISTRY}/retail-frontend:${{ github.sha }} \
+            -n frontend
+
+      - name: "Wait for Rolling Update Rollout"
+        if: steps.check-cluster.outputs.active == 'true'
+        run: |
+          echo "Verifying backend-api deployment rollout..."
+          kubectl rollout status deployment/backend-api -n backend --timeout=180s
+
+          echo "Verifying frontend-ui deployment rollout..."
+          kubectl rollout status deployment/frontend-ui -n frontend --timeout=180s
+
+      - name: "Automated Post-Deployment Smoke Test"
+        if: steps.check-cluster.outputs.active == 'true'
+        run: |
+          echo "Retrieving live AWS Application Load Balancer address..."
+          ALB_HOST=$(kubectl get ingress -n frontend retail-frontend-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          if [ -z "$ALB_HOST" ]; then
+            echo "ERROR: ALB hostname not yet provisioned on ingress."
+            exit 1
+          fi
+
+          echo "Targeting ALB: http://${ALB_HOST}"
+          
+          echo "--> Test 1: Frontend NGINX Healthz"
+          curl -s --fail --retry 6 --retry-delay 5 "http://${ALB_HOST}/healthz"
+          echo ""
+
+          echo "--> Test 2: Backend API Health (Database Connection Probe)"
+          HEALTH_RESPONSE=$(curl -s --fail --retry 6 --retry-delay 5 "http://${ALB_HOST}/api/health")
+          echo "Health Response: $HEALTH_RESPONSE"
+          echo "$HEALTH_RESPONSE" | grep -q '"status":"healthy"' || exit 1
+          echo "$HEALTH_RESPONSE" | grep -q '"database":"connected"' || exit 1
+
+          echo "--> Test 3: Catalog Query (Database Query Probe)"
+          PRODUCTS_RESPONSE=$(curl -s --fail --retry 6 --retry-delay 5 "http://${ALB_HOST}/api/products")
+          echo "Products Response: $PRODUCTS_RESPONSE"
+          echo "$PRODUCTS_RESPONSE" | grep -q "Mechanical Keyboard" || exit 1
+
+          echo "========================================================"
+          echo "SUCCESS: All CI/CD smoke tests passed against Amazon EKS!"
+          echo "========================================================"

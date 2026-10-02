@@ -40,12 +40,12 @@ output "secrets_manager_secret_name" {
 
 output "ecr_frontend_repository_url" {
   description = "ECR repository URL for retail-frontend"
-  value       = aws_ecr_repository.frontend.repository_url
+  value       = data.aws_ecr_repository.frontend.repository_url
 }
 
 output "ecr_backend_repository_url" {
   description = "ECR repository URL for retail-backend"
-  value       = aws_ecr_repository.backend.repository_url
+  value       = data.aws_ecr_repository.backend.repository_url
 }
 
 output "karpenter_node_role_name" {
@@ -66,4 +66,9 @@ output "eso_role_arn" {
 output "alb_controller_role_arn" {
   description = "IAM role ARN for AWS Load Balancer Controller"
   value       = aws_iam_role.load_balancer_controller.arn
+}
+
+output "github_actions_role_arn" {
+  description = "IAM role ARN for GitHub Actions CI/CD pipeline"
+  value       = aws_iam_role.github_actions.arn
 }
